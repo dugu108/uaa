@@ -76,14 +76,21 @@ logger.info("Preparing to launch NATS from #{pid}")
 router_msg = { :host => config["uaa"]["host"]||"127.0.0.1", :port => config["uaa"]["port"]||8080, :uris => config["uaa"]["uris"]||["uaa.vcap.me", "login.vcap.me"], :tags => {:component => "UAA"} }
 router_json = Yajl::Encoder.encode(router_msg)
 
+@startTime = Time.now
+
 # If there was more than one node the uuid should be #{index}-#{constant}
-discover_msg = { :type => 'UAA',
+@discover_msg = { :type => 'UAA',
   :host => "%s:%s" % [config["uaa"]["host"]||"localhost",  config["uaa"]["port"]||8080],
   :index => 0,
   :credentials => [config["varz"]["username"], config["varz"]["password"]],
-  :uuid => "0-#{config["varz"]["uuid"]}"
+  :uuid => "0-#{config["varz"]["uuid"]}",
+  :start => @startTime
 }
-discover_json = Yajl::Encoder.encode(discover_msg)
+
+def discover_json
+  @discover_msg["uptime"] = VCAP.uptime_string(Time.now - @startTime)
+  Yajl::Encoder.encode(@discover_msg)
+end
 
 logger.info("Sending Router info to NATS: json="+router_json)
 mbus = config["mbus"] || "nats://localhost:4222/"
@@ -95,7 +102,7 @@ Thread.new do
   start_time = Time.now
   logger.info("Waiting for uaa to start within #{max_wait} seconds")
   begin
-    response = RestClient.get "#{discover_msg[:host]}/login", accept: "application/json",
+    response = RestClient.get "#{@discover_msg[:host]}/login", accept: "application/json",
         open_timeout: 2, timeout: 2
     uaa_is_up = response.code == 200 && response.body =~ /prompts/
   rescue Exception => e
